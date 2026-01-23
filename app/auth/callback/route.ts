@@ -7,14 +7,15 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   // 这里的 next 是指验证成功后要跳去哪里，默认跳去首页
-  const next = searchParams.get('next') ?? '/'
+  const nextParam = searchParams.get('next') ?? '/'
+  const next = nextParam.startsWith('/') ? nextParam : '/'
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
-      // 验证成功，创建了 Session，重定向到用户想去的页面 (比如 /dashboard)
+      // 验证成功，创建了 Session，重定向到用户想去的页面
       return NextResponse.redirect(`${origin}${next}`)
     }
   }

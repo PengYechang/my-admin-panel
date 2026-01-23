@@ -1,0 +1,103 @@
+'use client'
+
+import { useMemo, useState, type FormEvent } from 'react'
+import Link from 'next/link'
+import { createClient } from '@/utils/supabase/client'
+
+type Message = { type: 'success' | 'error'; text: string } | null
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export default function ForgotPasswordPage() {
+  const supabase = useMemo(() => createClient(), [])
+  const [email, setEmail] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [message, setMessage] = useState<Message>(null)
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setMessage(null)
+
+    if (!EMAIL_REGEX.test(email)) {
+      setMessage({ type: 'error', text: '请输入正确的邮箱地址。' })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${location.origin}/reset-password`,
+      })
+
+      if (error) {
+        setMessage({ type: 'error', text: `发送失败：${error.message}` })
+        return
+      }
+
+      setMessage({
+        type: 'success',
+        text: '已发送重置邮件，请前往邮箱完成验证。',
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="w-full rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mb-6 space-y-2">
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">忘记密码</h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          输入注册邮箱，我们会发送重置密码链接。
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="block space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+          邮箱
+          <input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-2 text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-200"
+            placeholder="name@company.com"
+            required
+          />
+        </label>
+
+        {message ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`rounded-lg px-4 py-3 text-sm ${
+              message.type === 'success'
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
+            }`}
+          >
+            {message.text}
+          </div>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="flex w-full items-center justify-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+        >
+          {isLoading ? '发送中...' : '发送重置邮件'}
+        </button>
+      </form>
+
+      <div className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
+        想起密码了？
+        <Link
+          href="/login"
+          className="ml-1 font-medium text-zinc-900 hover:text-zinc-700 dark:text-zinc-100 dark:hover:text-white"
+        >
+          返回登录
+        </Link>
+      </div>
+    </div>
+  )
+}
