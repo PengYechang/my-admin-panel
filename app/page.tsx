@@ -15,7 +15,7 @@ export default async function Home() {
             My Admin Panel
           </p>
           <h1 className="text-4xl font-semibold text-zinc-900 dark:text-zinc-50">
-            快速搭建可扩展的后台管理体验
+            Refrain的后台管理
           </h1>
           <p className="max-w-2xl text-base text-zinc-500 dark:text-zinc-400">
             该模板已集成 Next.js +

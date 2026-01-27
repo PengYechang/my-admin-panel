@@ -395,6 +395,82 @@ on conflict do nothing;
 
 ## 13. SQL（AI 聊天模块）
 
+管理后台：/admin/ai-chat（仅管理员可写）。用于维护场景名称、Langfuse Prompt Key 与 MCP 配置（jsonb）。
+
+### MCP 配置示例（当前实现）
+
+当前服务端实现支持 **HTTP MCP**：
+
+1. 传统 `/tools/list` 与 `/tools/call`
+2. Streamable HTTP `/mcp`（Smithery 这类 endpoint）
+
+支持的结构：`config.mcp` 或直接 `config` 顶层 `servers`。
+
+推荐：在服务端通过 `MCP_SERVER_REGISTRY` 维护可用 MCP 列表，
+场景里只保存 `serverNames`（前端下拉勾选），避免把密钥放入数据库。
+
+提示：如 MCP URL 不是以 `/mcp` 结尾（例如 Smithery 主页链接），服务端会自动尝试追加 `/mcp`。
+
+`.env.local` 示例（建议用 JSON 格式化后再压成一行字符串）：
+
+```bash
+MCP_SERVER_REGISTRY='[
+  {
+    "name": "feishu-mcp-word",
+    "url": "https://open.feishu.cn/mcp/stream/REDACTED",
+    "headers": {
+      "Authorization": "Bearer ${FEISHU_MCP_TOKEN}"
+    }
+  },
+  {
+    "name": "feishu-mcp-msg",
+    "url": "https://open.feishu.cn/mcp/stream/REDACTED"
+  },
+  {
+    "name": "smithery-bgg",
+    "url": "https://server.smithery.ai/@kkjdaniel/bgg-mcp",
+    "headers": {
+      "Authorization": "Bearer ${SMITHERY_API_KEY}"
+    },
+    "query": {
+      "BGG_USERNAME": "${BGG_USERNAME}",
+      "BGG_API_KEY": "${BGG_API_KEY}"
+    }
+  }
+]'
+```
+
+说明：`headers` 会在调用 MCP `/tools/list` 与 `/tools/call` 时透传，
+用于需要密钥的 MCP（如 Smithery）。
+`query` 会附加到 MCP 请求 URL 上，适配通过 URL 参数鉴权的 MCP（如 `BGG_API_KEY`）。
+
+### Langfuse Prompt 下拉选项
+
+默认会从 Langfuse Public API 拉取 prompts（需配置 `LANGFUSE_HOST`、`LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY`）。
+也可通过 `LANGFUSE_PROMPT_OPTIONS` 追加/兜底下拉候选：
+
+```bash
+LANGFUSE_PROMPT_OPTIONS='[
+  "customer_support",
+  {"key":"product_qa","label":"产品问答"}
+]'
+```
+
+**HTTP MCP（推荐）**
+
+```json
+{
+  "mcp": {
+    "serverNames": ["feishu-mcp-word", "feishu-mcp-msg"],
+    "toolRouting": {
+      "feishu.search": "feishu-mcp-word",
+      "feishu.send": "feishu-mcp-msg"
+    },
+    "timeoutMs": 8000
+  }
+}
+```
+
 ```
 create table if not exists public.ai_chat_scenarios (
   id uuid primary key default gen_random_uuid(),

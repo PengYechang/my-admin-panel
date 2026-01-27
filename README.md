@@ -92,6 +92,8 @@ utils/
 
 路径：/ai-chat（由模块权限控制）
 
+管理后台：/admin/ai-chat（仅管理员可见），支持场景增删改与 MCP 配置维护。
+
 依赖：
 
 - ai_chat_scenarios（场景配置，对应 Langfuse Prompt）

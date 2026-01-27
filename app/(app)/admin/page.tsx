@@ -113,6 +113,12 @@ export default async function AdminPage() {
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link
+              href="/admin/ai-chat"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              AI 场景管理
+            </Link>
+            <Link
               href="/"
               className="inline-flex items-center justify-center rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
             >
