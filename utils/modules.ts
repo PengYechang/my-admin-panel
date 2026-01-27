@@ -1,4 +1,4 @@
-export type ModuleKey = 'admin' | 'blog' | 'memo'
+export type ModuleKey = 'admin' | 'blog' | 'memo' | 'ai-chat'
 
 export type ModuleInfo = {
   key: ModuleKey
@@ -13,6 +13,12 @@ export const MODULES: ModuleInfo[] = [
     name: '权限管理',
     description: '用户角色与模块权限配置。',
     href: '/admin',
+  },
+  {
+    key: 'ai-chat',
+    name: 'AI 聊天',
+    description: '多场景对话，绑定 Langfuse Prompt。',
+    href: '/ai-chat',
   },
   {
     key: 'blog',

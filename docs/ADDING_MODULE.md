@@ -381,6 +381,9 @@ values
   ('admin', 'admin', true, true),
   ('admin', 'editor', false, false),
   ('admin', 'user', false, false),
+  ('ai-chat', 'admin', true, true),
+  ('ai-chat', 'editor', true, true),
+  ('ai-chat', 'user', true, true),
   ('blog', 'admin', true, true),
   ('blog', 'editor', true, true),
   ('blog', 'user', true, false),
@@ -388,4 +391,60 @@ values
   ('memo', 'editor', true, true),
   ('memo', 'user', true, true)
 on conflict do nothing;
+```
+
+## 13. SQL（AI 聊天模块）
+
+```
+create table if not exists public.ai_chat_scenarios (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  prompt_key text not null,
+  config jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  scenario_id uuid not null references public.ai_chat_scenarios(id) on delete cascade,
+  conversation_id uuid not null,
+  role text not null check (role in ('user', 'assistant', 'system')),
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ai_chat_messages_user_idx on public.ai_chat_messages (user_id);
+create index if not exists ai_chat_messages_scenario_idx on public.ai_chat_messages (scenario_id);
+create index if not exists ai_chat_messages_conversation_idx on public.ai_chat_messages (conversation_id);
+
+alter table public.ai_chat_scenarios enable row level security;
+alter table public.ai_chat_messages enable row level security;
+
+-- 场景：登录用户可读，admin/editor 可写
+create policy "ai_chat_scenarios_read" on public.ai_chat_scenarios
+for select using (auth.role() = 'authenticated');
+
+create policy "ai_chat_scenarios_write" on public.ai_chat_scenarios
+for insert with check ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'editor'));
+
+create policy "ai_chat_scenarios_update" on public.ai_chat_scenarios
+for update using ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'editor'));
+
+create policy "ai_chat_scenarios_delete" on public.ai_chat_scenarios
+for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin', 'editor'));
+
+-- 消息：仅本人读写
+create policy "ai_chat_messages_read" on public.ai_chat_messages
+for select using (auth.uid() = user_id);
+
+create policy "ai_chat_messages_insert" on public.ai_chat_messages
+for insert with check (auth.uid() = user_id);
+
+create policy "ai_chat_messages_update" on public.ai_chat_messages
+for update using (auth.uid() = user_id);
+
+create policy "ai_chat_messages_delete" on public.ai_chat_messages
+for delete using (auth.uid() = user_id);
 ```

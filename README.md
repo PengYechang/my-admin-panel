@@ -19,6 +19,7 @@ app/
 		reset-password/
 	(app)/               # 业务模块路由
 		admin/             # 权限管理（admin）
+		ai-chat/           # AI 聊天模块
 		blog/              # 博客模块
 		memo/              # 备忘录模块
 	auth/                # Supabase 回调与错误页
@@ -26,6 +27,7 @@ app/
 features/
 	auth/                # 认证相关组件
   admin/               # 权限管理组件
+	ai-chat/             # AI 聊天组件
   blog/                # 博客组件
   memo/                # 备忘录组件
 utils/
@@ -85,6 +87,24 @@ utils/
 - SUPABASE_BOOTSTRAP_ADMIN_EMAIL（首次初始化管理员邮箱）
 
 注意：Service Role 只能放在服务端环境变量中，禁止在客户端组件或公开代码里使用。
+
+## AI 聊天模块
+
+路径：/ai-chat（由模块权限控制）
+
+依赖：
+
+- ai_chat_scenarios（场景配置，对应 Langfuse Prompt）
+- ai_chat_messages（聊天记录）
+
+需要配置：
+
+- OPENAI_API_KEY
+- OPENAI_BASE_URL
+- OPENAI_MODEL
+- LANGFUSE_PUBLIC_KEY
+- LANGFUSE_SECRET_KEY
+- LANGFUSE_HOST
 
 ## 服务端安全配置（是什么）
 
