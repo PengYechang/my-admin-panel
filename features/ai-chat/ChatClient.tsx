@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -71,31 +71,41 @@ function saveStoredActiveConversationId(scenarioId: string, conversationId: stri
 
 export default function ChatClient({ scenarios, userId, initialScenarioId }: ChatClientProps) {
   const router = useRouter()
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(() => {
-    if (!initialScenarioId) return scenarios[0]?.id ?? ''
-    const direct = scenarios.find((item) => item.id === initialScenarioId)
+  const searchParams = useSearchParams()
+  const scenarioParam = searchParams.get('scenario')
+  const resolveScenarioId = (value: string | null | undefined) => {
+    if (!value) return undefined
+    const direct = scenarios.find((item) => item.id === value)
     if (direct) return direct.id
-    const byPrompt = scenarios.find((item) => item.prompt_key === initialScenarioId)
+    const byPrompt = scenarios.find((item) => item.prompt_key === value)
     if (byPrompt) return byPrompt.id
-    const byName = scenarios.find((item) => item.name === initialScenarioId)
-    return byName?.id ?? scenarios[0]?.id ?? ''
+    const byName = scenarios.find((item) => item.name === value)
+    return byName?.id
+  }
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(() => {
+    const resolvedFromUrl = resolveScenarioId(initialScenarioId)
+    if (resolvedFromUrl) return resolvedFromUrl
+    return scenarios[0]?.id ?? ''
   })
   useEffect(() => {
-    if (!initialScenarioId) return
-    const direct = scenarios.find((item) => item.id === initialScenarioId)
-    const resolved =
-      direct?.id ??
-      scenarios.find((item) => item.prompt_key === initialScenarioId)?.id ??
-      scenarios.find((item) => item.name === initialScenarioId)?.id
-    if (resolved) {
+    const resolved = resolveScenarioId(initialScenarioId)
+    if (resolved && resolved !== selectedScenarioId) {
       setSelectedScenarioId(resolved)
     }
-  }, [initialScenarioId, scenarios])
+  }, [initialScenarioId, scenarios, selectedScenarioId])
+
+  useEffect(() => {
+    const resolved = resolveScenarioId(scenarioParam)
+    if (resolved && resolved !== selectedScenarioId) {
+      setSelectedScenarioId(resolved)
+    }
+  }, [scenarioParam, scenarios, selectedScenarioId])
 
   useEffect(() => {
     if (!selectedScenarioId) return
+    if (scenarioParam === selectedScenarioId) return
     router.replace(`/ai-chat?scenario=${selectedScenarioId}`, { scroll: false })
-  }, [router, selectedScenarioId])
+  }, [router, scenarioParam, selectedScenarioId])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])

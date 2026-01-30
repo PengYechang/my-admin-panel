@@ -3,10 +3,11 @@ import { requireModuleAccess } from '@/utils/auth/modulePermissions'
 import ChatClient from '@/features/ai-chat/ChatClient'
 
 type AiChatPageProps = {
-  searchParams?: { scenario?: string }
+  searchParams?: Promise<{ scenario?: string }>
 }
 
 export default async function AiChatPage({ searchParams }: AiChatPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined
   const { supabase, user } = await requireModuleAccess('ai-chat', '/login?next=/ai-chat')
 
   const { data: scenarios, error } = await supabase
@@ -38,7 +39,7 @@ export default async function AiChatPage({ searchParams }: AiChatPageProps) {
           <ChatClient
             scenarios={scenarios}
             userId={user.id}
-            initialScenarioId={searchParams?.scenario}
+            initialScenarioId={resolvedSearchParams?.scenario}
           />
         ) : (
           <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
