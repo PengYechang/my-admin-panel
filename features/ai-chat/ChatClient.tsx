@@ -24,6 +24,7 @@ type ChatMessage = {
 type ChatClientProps = {
   scenarios: ChatScenario[]
   userId: string
+  initialScenarioId?: string
 }
 
 type ConversationSummary = {
@@ -68,9 +69,25 @@ function saveStoredActiveConversationId(scenarioId: string, conversationId: stri
   localStorage.setItem(activeConversationKey(scenarioId), conversationId)
 }
 
-export default function ChatClient({ scenarios, userId }: ChatClientProps) {
+export default function ChatClient({ scenarios, userId, initialScenarioId }: ChatClientProps) {
   const router = useRouter()
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(scenarios[0]?.id ?? '')
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(() => {
+    if (initialScenarioId && scenarios.some((item) => item.id === initialScenarioId)) {
+      return initialScenarioId
+    }
+    return scenarios[0]?.id ?? ''
+  })
+  useEffect(() => {
+    if (!initialScenarioId) return
+    if (scenarios.some((item) => item.id === initialScenarioId)) {
+      setSelectedScenarioId(initialScenarioId)
+    }
+  }, [initialScenarioId, scenarios])
+
+  useEffect(() => {
+    if (!selectedScenarioId) return
+    router.replace(`/ai-chat?scenario=${selectedScenarioId}`, { scroll: false })
+  }, [router, selectedScenarioId])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])

@@ -2,7 +2,11 @@ import Link from 'next/link'
 import { requireModuleAccess } from '@/utils/auth/modulePermissions'
 import ChatClient from '@/features/ai-chat/ChatClient'
 
-export default async function AiChatPage() {
+type AiChatPageProps = {
+  searchParams?: { scenario?: string }
+}
+
+export default async function AiChatPage({ searchParams }: AiChatPageProps) {
   const { supabase, user } = await requireModuleAccess('ai-chat', '/login?next=/ai-chat')
 
   const { data: scenarios, error } = await supabase
@@ -31,7 +35,11 @@ export default async function AiChatPage() {
         {error ? (
           <p className="text-sm text-rose-600 dark:text-rose-400">{error.message}</p>
         ) : scenarios && scenarios.length > 0 ? (
-          <ChatClient scenarios={scenarios} userId={user.id} />
+          <ChatClient
+            scenarios={scenarios}
+            userId={user.id}
+            initialScenarioId={searchParams?.scenario}
+          />
         ) : (
           <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
             尚未配置聊天场景，请先在数据库中创建 ai_chat_scenarios 记录。

@@ -11,6 +11,15 @@ type ChatMessage = {
   content: string
 }
 
+type TraceMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+function toTraceRole(role: OpenAIMessage['role']): TraceMessage['role'] {
+  return role === 'tool' ? 'assistant' : role
+}
+
 type ToolCall = {
   id: string
   type: 'function'
@@ -18,6 +27,12 @@ type ToolCall = {
     name: string
     arguments: string
   }
+}
+
+type OpenAIUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
 }
 
 type OpenAIMessage = {
@@ -186,9 +201,29 @@ async function sendToLangfuseTrace(payload: {
   scenarioId: string
   userId: string
   model: string
-  input: ChatMessage[]
+  input: TraceMessage[]
   output: string
   metadata: Record<string, unknown>
+  traceId: string
+  generations: Array<{
+    id: string
+    name: string
+    model: string
+    input: TraceMessage[]
+    output: string
+    startTime: string
+    endTime: string
+    usage?: OpenAIUsage
+  }>
+  toolSpans: Array<{
+    id: string
+    name: string
+    input: Record<string, unknown>
+    output: unknown
+    startTime: string
+    endTime: string
+    metadata?: Record<string, unknown>
+  }>
 }) {
   const host = process.env.LANGFUSE_HOST
   const publicKey = process.env.LANGFUSE_PUBLIC_KEY
@@ -202,8 +237,6 @@ async function sendToLangfuseTrace(payload: {
     const safeInput = Array.isArray(payload.input) ? payload.input : []
     const safeOutput = payload.output ?? ''
     const now = new Date().toISOString()
-    const traceId = crypto.randomUUID()
-    const generationId = crypto.randomUUID()
     const auth = Buffer.from(`${publicKey}:${secretKey}`).toString('base64')
     const response = await fetch(`${host}/api/public/ingestion`, {
       method: 'POST',
@@ -218,7 +251,7 @@ async function sendToLangfuseTrace(payload: {
             timestamp: now,
             type: 'trace-create',
             body: {
-              id: traceId,
+              id: payload.traceId,
               timestamp: now,
               name: payload.promptKey,
               userId: payload.userId,
@@ -227,21 +260,38 @@ async function sendToLangfuseTrace(payload: {
               output: safeOutput,
             },
           },
-          {
+          ...payload.generations.map((generation) => ({
             id: crypto.randomUUID(),
-            timestamp: now,
+            timestamp: generation.endTime,
             type: 'generation-create',
             body: {
-              id: generationId,
-              traceId,
-              name: payload.promptKey,
-              model: payload.model,
-              startTime: now,
-              completionStartTime: now,
-              input: safeInput,
-              output: safeOutput,
+              id: generation.id,
+              traceId: payload.traceId,
+              name: generation.name,
+              model: generation.model,
+              startTime: generation.startTime,
+              completionStartTime: generation.startTime,
+              endTime: generation.endTime,
+              input: generation.input,
+              output: generation.output,
+              usageDetails: generation.usage,
             },
-          },
+          })),
+          ...payload.toolSpans.map((span) => ({
+            id: crypto.randomUUID(),
+            timestamp: span.endTime,
+            type: 'span-create',
+            body: {
+              id: span.id,
+              traceId: payload.traceId,
+              name: span.name,
+              startTime: span.startTime,
+              endTime: span.endTime,
+              input: span.input,
+              output: span.output,
+              metadata: span.metadata ?? null,
+            },
+          })),
         ],
       }),
     })
@@ -279,6 +329,7 @@ async function callOpenAI(messages: OpenAIMessage[], tools?: OpenAITool[]) {
     throw new Error('Missing OPENAI_API_KEY')
   }
 
+  const startAt = Date.now()
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -301,12 +352,16 @@ async function callOpenAI(messages: OpenAIMessage[], tools?: OpenAITool[]) {
 
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }>
+    usage?: OpenAIUsage
   }
 
   const message = data.choices?.[0]?.message
   return {
     content: message?.content ?? '',
     toolCalls: message?.tool_calls ?? [],
+    usage: data.usage,
+    startedAt: new Date(startAt).toISOString(),
+    endedAt: new Date().toISOString(),
   }
 }
 
@@ -347,7 +402,42 @@ export async function POST(request: Request) {
   const { tools, routing, timeoutMs } = await prepareMcpTools(mcpConfig)
 
   const promptMessages: OpenAIMessage[] = [systemMessage, ...messages]
+  const traceId = crypto.randomUUID()
+  const generations: Array<{
+    id: string
+    name: string
+    model: string
+    input: ChatMessage[]
+    output: string
+    startTime: string
+    endTime: string
+    usage?: OpenAIUsage
+  }> = []
+  const toolSpans: Array<{
+    id: string
+    name: string
+    input: Record<string, unknown>
+    output: unknown
+    startTime: string
+    endTime: string
+    metadata?: Record<string, unknown>
+  }> = []
+
   const firstResponse = await callOpenAI(promptMessages, tools)
+  const firstInput: TraceMessage[] = promptMessages.map<TraceMessage>((item) => ({
+    role: toTraceRole(item.role),
+    content: item.content ?? '',
+  }))
+  generations.push({
+    id: crypto.randomUUID(),
+    name: scenario.prompt_key,
+    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+    input: firstInput,
+    output: firstResponse.content ?? '',
+    startTime: firstResponse.startedAt,
+    endTime: firstResponse.endedAt,
+    usage: firstResponse.usage,
+  })
   let reply = firstResponse.content
 
   if (firstResponse.toolCalls && firstResponse.toolCalls.length > 0) {
@@ -373,14 +463,42 @@ export async function POST(request: Request) {
         args = {}
       }
 
+      const toolStart = new Date().toISOString()
       try {
         const result = await callMcpTool(server, toolName, args, timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS)
+        const toolEnd = new Date().toISOString()
+        toolSpans.push({
+          id: crypto.randomUUID(),
+          name: `mcp:${toolName}`,
+          input: args,
+          output: result,
+          startTime: toolStart,
+          endTime: toolEnd,
+          metadata: {
+            server: server.name,
+            url: server.url,
+          },
+        })
         toolMessages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           content: typeof result === 'string' ? result : JSON.stringify(result),
         })
       } catch (err) {
+        const toolEnd = new Date().toISOString()
+        toolSpans.push({
+          id: crypto.randomUUID(),
+          name: `mcp:${toolName}`,
+          input: args,
+          output: err instanceof Error ? err.message : 'Tool call failed',
+          startTime: toolStart,
+          endTime: toolEnd,
+          metadata: {
+            server: server.name,
+            url: server.url,
+            error: true,
+          },
+        })
         toolMessages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -401,6 +519,31 @@ export async function POST(request: Request) {
       ],
       tools
     )
+
+    const secondInput: TraceMessage[] = [
+      ...promptMessages.map<TraceMessage>((item) => ({
+        role: toTraceRole(item.role),
+        content: item.content ?? '',
+      })),
+      {
+        role: 'assistant',
+        content: firstResponse.content ?? '',
+      } as TraceMessage,
+      ...toolMessages.map<TraceMessage>((item) => ({
+        role: 'assistant',
+        content: item.content ?? '',
+      })),
+    ]
+    generations.push({
+      id: crypto.randomUUID(),
+      name: scenario.prompt_key,
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+      input: secondInput,
+      output: secondResponse.content ?? '',
+      startTime: secondResponse.startedAt,
+      endTime: secondResponse.endedAt,
+      usage: secondResponse.usage,
+    })
 
     reply = secondResponse.content
   }
@@ -431,8 +574,9 @@ export async function POST(request: Request) {
     scenarioId,
     userId: user.id,
     model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+    traceId,
     input: promptMessages.map((item) => ({
-      role: item.role === 'tool' ? 'assistant' : item.role,
+      role: toTraceRole(item.role),
       content: item.content ?? '',
     })),
     output: reply,
@@ -441,6 +585,8 @@ export async function POST(request: Request) {
       config: config ?? scenario.config ?? null,
       mcp: mcpConfig ?? null,
     },
+    generations,
+    toolSpans,
   })
 
   return NextResponse.json({ reply, traceWarning: traceResult.ok ? undefined : traceResult.error })
