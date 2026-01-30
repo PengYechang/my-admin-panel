@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
+import { createAdminClient } from '@/utils/supabase/admin'
 import { resolveMcpServers, type McpServerConfig } from '@/utils/mcp/registry'
 import { listMcpTools, callMcpTool } from '@/utils/mcp/client'
 
@@ -401,7 +402,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: scenario, error: scenarioError } = await supabase
+  // 使用 admin 客户端查询场景，绕过 RLS 限制（支持游客访问）
+  const adminClient = createAdminClient()
+  const { data: scenario, error: scenarioError } = await adminClient
     .from('ai_chat_scenarios')
     .select('id,prompt_key,config')
     .eq('id', scenarioId)
