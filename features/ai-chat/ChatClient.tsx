@@ -72,15 +72,23 @@ function saveStoredActiveConversationId(scenarioId: string, conversationId: stri
 export default function ChatClient({ scenarios, userId, initialScenarioId }: ChatClientProps) {
   const router = useRouter()
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(() => {
-    if (initialScenarioId && scenarios.some((item) => item.id === initialScenarioId)) {
-      return initialScenarioId
-    }
-    return scenarios[0]?.id ?? ''
+    if (!initialScenarioId) return scenarios[0]?.id ?? ''
+    const direct = scenarios.find((item) => item.id === initialScenarioId)
+    if (direct) return direct.id
+    const byPrompt = scenarios.find((item) => item.prompt_key === initialScenarioId)
+    if (byPrompt) return byPrompt.id
+    const byName = scenarios.find((item) => item.name === initialScenarioId)
+    return byName?.id ?? scenarios[0]?.id ?? ''
   })
   useEffect(() => {
     if (!initialScenarioId) return
-    if (scenarios.some((item) => item.id === initialScenarioId)) {
-      setSelectedScenarioId(initialScenarioId)
+    const direct = scenarios.find((item) => item.id === initialScenarioId)
+    const resolved =
+      direct?.id ??
+      scenarios.find((item) => item.prompt_key === initialScenarioId)?.id ??
+      scenarios.find((item) => item.name === initialScenarioId)?.id
+    if (resolved) {
+      setSelectedScenarioId(resolved)
     }
   }, [initialScenarioId, scenarios])
 

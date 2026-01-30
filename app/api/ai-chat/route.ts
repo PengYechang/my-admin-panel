@@ -69,6 +69,25 @@ type LangfusePrompt = {
   config?: Record<string, unknown>
 }
 
+function getPromptVariables() {
+  const now = new Date()
+  return {
+    current_date: now.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }),
+    current_year: String(now.getFullYear()),
+  }
+}
+
+function interpolatePrompt(prompt: string, variables: Record<string, string>) {
+  return prompt.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
+    if (key in variables) return variables[key] ?? ''
+    return match
+  })
+}
+
 function getMcpConfig(config: Record<string, unknown> | null | undefined): McpConfig | null {
   if (!config) return null
 
@@ -393,9 +412,13 @@ export async function POST(request: Request) {
   }
 
   const { prompt, config } = await getLangfusePrompt(scenario.prompt_key)
+  const promptVariables = {
+    ...getPromptVariables(),
+    ...((config?.promptVariables as Record<string, string> | undefined) ?? {}),
+  }
   const systemMessage: OpenAIMessage = {
     role: 'system',
-    content: prompt ?? scenario.prompt_key,
+    content: prompt ? interpolatePrompt(prompt, promptVariables) : scenario.prompt_key,
   }
 
   const mcpConfig = getMcpConfig((config ?? scenario.config ?? null) as Record<string, unknown>)
