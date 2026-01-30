@@ -5,6 +5,7 @@ type ConversationSummary = {
   id: string
   title: string
   updatedAt: string
+  scenarioId: string
 }
 
 export async function GET(request: Request) {
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ conversations: [] })
   }
 
   const { data, error } = await supabase
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
       id: item.conversation_id,
       title,
       updatedAt: item.created_at,
+      scenarioId,
     })
   }
 

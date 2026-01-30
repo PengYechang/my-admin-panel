@@ -388,7 +388,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RequestBody
   const { scenarioId, conversationId, userId, messages } = body
 
-  if (!scenarioId || !conversationId || !userId || !messages) {
+  if (!scenarioId || !conversationId || !messages) {
     return NextResponse.json({ message: 'Missing required fields' }, { status: 400 })
   }
 
@@ -397,7 +397,7 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user || user.id !== userId) {
+  if (user && userId && user.id !== userId) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
   }
 
@@ -571,31 +571,33 @@ export async function POST(request: Request) {
     reply = secondResponse.content
   }
 
-  const { error: insertError } = await supabase.from('ai_chat_messages').insert([
-    {
-      user_id: user.id,
-      scenario_id: scenarioId,
-      conversation_id: conversationId,
-      role: 'user',
-      content: messages[messages.length - 1]?.content ?? '',
-    },
-    {
-      user_id: user.id,
-      scenario_id: scenarioId,
-      conversation_id: conversationId,
-      role: 'assistant',
-      content: reply,
-    },
-  ])
+  if (user) {
+    const { error: insertError } = await supabase.from('ai_chat_messages').insert([
+      {
+        user_id: user.id,
+        scenario_id: scenarioId,
+        conversation_id: conversationId,
+        role: 'user',
+        content: messages[messages.length - 1]?.content ?? '',
+      },
+      {
+        user_id: user.id,
+        scenario_id: scenarioId,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: reply,
+      },
+    ])
 
-  if (insertError) {
-    return NextResponse.json({ message: insertError.message }, { status: 500 })
+    if (insertError) {
+      return NextResponse.json({ message: insertError.message }, { status: 500 })
+    }
   }
 
   const traceResult = await sendToLangfuseTrace({
     promptKey: scenario.prompt_key,
     scenarioId,
-    userId: user.id,
+    userId: user?.id ?? `guest:${conversationId}`,
     model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
     traceId,
     input: promptMessages.map((item) => ({

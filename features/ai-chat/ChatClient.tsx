@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -23,7 +24,7 @@ type ChatMessage = {
 
 type ChatClientProps = {
   scenarios: ChatScenario[]
-  userId: string
+  userId?: string
   initialScenarioId?: string
 }
 
@@ -31,6 +32,7 @@ type ConversationSummary = {
   id: string
   title: string
   updatedAt: string
+  scenarioId: string
 }
 
 function conversationsKey(scenarioId: string) {
@@ -41,6 +43,10 @@ function activeConversationKey(scenarioId: string) {
   return `ai-chat:active:${scenarioId}`
 }
 
+function messagesKey(scenarioId: string, conversationId: string) {
+  return `ai-chat:messages:${scenarioId}:${conversationId}`
+}
+
 function loadStoredConversations(scenarioId: string) {
   if (typeof window === 'undefined') return [] as ConversationSummary[]
   const raw = localStorage.getItem(conversationsKey(scenarioId))
@@ -49,6 +55,13 @@ function loadStoredConversations(scenarioId: string) {
     const data = JSON.parse(raw) as ConversationSummary[]
     if (!Array.isArray(data)) return []
     return data
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        updatedAt: item.updatedAt,
+        scenarioId: item.scenarioId ?? scenarioId,
+      }))
+      .filter((item) => item.scenarioId === scenarioId)
   } catch {
     return []
   }
@@ -69,10 +82,29 @@ function saveStoredActiveConversationId(scenarioId: string, conversationId: stri
   localStorage.setItem(activeConversationKey(scenarioId), conversationId)
 }
 
+function loadStoredMessages(scenarioId: string, conversationId: string) {
+  if (typeof window === 'undefined') return [] as ChatMessage[]
+  const raw = localStorage.getItem(messagesKey(scenarioId, conversationId))
+  if (!raw) return []
+  try {
+    const data = JSON.parse(raw) as ChatMessage[]
+    if (!Array.isArray(data)) return []
+    return data
+  } catch {
+    return []
+  }
+}
+
+function saveStoredMessages(scenarioId: string, conversationId: string, messages: ChatMessage[]) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(messagesKey(scenarioId, conversationId), JSON.stringify(messages))
+}
+
 export default function ChatClient({ scenarios, userId, initialScenarioId }: ChatClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const scenarioParam = searchParams.get('scenario')
+  const lastInitialScenarioId = useRef<string | null>(null)
   const resolveScenarioId = (value: string | null | undefined) => {
     if (!value) return undefined
     const direct = scenarios.find((item) => item.id === value)
@@ -88,18 +120,13 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
     return scenarios[0]?.id ?? ''
   })
   useEffect(() => {
+    if (initialScenarioId === lastInitialScenarioId.current) return
     const resolved = resolveScenarioId(initialScenarioId)
     if (resolved && resolved !== selectedScenarioId) {
       setSelectedScenarioId(resolved)
     }
+    lastInitialScenarioId.current = initialScenarioId ?? null
   }, [initialScenarioId, scenarios, selectedScenarioId])
-
-  useEffect(() => {
-    const resolved = resolveScenarioId(scenarioParam)
-    if (resolved && resolved !== selectedScenarioId) {
-      setSelectedScenarioId(resolved)
-    }
-  }, [scenarioParam, scenarios, selectedScenarioId])
 
   useEffect(() => {
     if (!selectedScenarioId) return
@@ -108,6 +135,7 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
   }, [router, scenarioParam, selectedScenarioId])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const [conversationsScenarioId, setConversationsScenarioId] = useState<string>('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -120,18 +148,38 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
     [scenarios, selectedScenarioId]
   )
 
+  const visibleConversations = useMemo(
+    () => conversations.filter((item) => item.scenarioId === selectedScenarioId),
+    [conversations, selectedScenarioId]
+  )
+
   useEffect(() => {
     if (!selectedScenarioId) return
 
     const storedConversations = loadStoredConversations(selectedScenarioId)
     const storedActive = loadStoredActiveConversationId(selectedScenarioId)
 
-    setConversations(storedConversations)
-    setSelectedConversationId(storedActive ?? storedConversations[0]?.id ?? null)
+    // 合并对话列表，保留其他场景的对话
+    setConversations((prev) => {
+      const otherScenarios = prev.filter((item) => item.scenarioId !== selectedScenarioId)
+      return [...otherScenarios, ...storedConversations]
+    })
+    setConversationsScenarioId(selectedScenarioId)
+    if (storedActive) {
+      setSelectedConversationId(storedActive)
+      return
+    }
+
+    if (storedConversations.length > 0) {
+      setSelectedConversationId(storedConversations[0].id)
+      return
+    }
+
+    setSelectedConversationId(null)
   }, [selectedScenarioId])
 
   useEffect(() => {
-    if (!selectedScenarioId) return
+    if (!selectedScenarioId || !userId) return
     let active = true
 
     const loadConversations = async () => {
@@ -158,11 +206,19 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
           }
         }
 
-        const merged = Array.from(mergedMap.values()).sort((a, b) =>
-          b.updatedAt.localeCompare(a.updatedAt)
-        )
+        const merged = Array.from(mergedMap.values())
+          .map((item) => ({
+            ...item,
+            scenarioId: item.scenarioId ?? selectedScenarioId,
+          }))
+          .filter((item) => item.scenarioId === selectedScenarioId)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 
-        setConversations(merged)
+        // 合并对话列表，保留其他场景的对话
+        setConversations((prev) => {
+          const otherScenarios = prev.filter((item) => item.scenarioId !== selectedScenarioId)
+          return [...otherScenarios, ...merged]
+        })
         saveStoredConversations(selectedScenarioId, merged)
         if (!selectedConversationId && merged.length > 0) {
           setSelectedConversationId(merged[0].id)
@@ -178,11 +234,16 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
     return () => {
       active = false
     }
-  }, [selectedScenarioId, selectedConversationId])
+  }, [selectedScenarioId, selectedConversationId, userId])
 
   useEffect(() => {
     if (!selectedScenarioId || !selectedConversationId) {
       setMessages([])
+      return
+    }
+
+    if (!userId) {
+      setMessages(loadStoredMessages(selectedScenarioId, selectedConversationId))
       return
     }
 
@@ -219,12 +280,13 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
     return () => {
       active = false
     }
-  }, [selectedScenarioId, selectedConversationId])
+  }, [selectedScenarioId, selectedConversationId, userId])
 
   useEffect(() => {
     if (!selectedScenarioId) return
+    if (conversationsScenarioId !== selectedScenarioId) return
     saveStoredConversations(selectedScenarioId, conversations)
-  }, [conversations, selectedScenarioId])
+  }, [conversations, conversationsScenarioId, selectedScenarioId])
 
   useEffect(() => {
     if (!selectedScenarioId || !selectedConversationId) return
@@ -248,6 +310,7 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
       id,
       title: '新对话',
       updatedAt: new Date().toISOString(),
+      scenarioId: selectedScenarioId,
     }
     setConversations((prev) => [nextConversation, ...prev])
     setSelectedConversationId(id)
@@ -260,6 +323,18 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
     if (!selectedScenarioId) return
     const confirmed = window.confirm('确定要删除这个对话吗？该操作不可恢复。')
     if (!confirmed) return
+
+    if (!userId) {
+      localStorage.removeItem(messagesKey(selectedScenarioId, conversationId))
+      const remaining = conversations.filter((item) => item.id !== conversationId)
+      setConversations(remaining)
+      if (selectedConversationId === conversationId) {
+        const fallback = remaining[0]?.id ?? null
+        setSelectedConversationId(fallback)
+        setMessages([])
+      }
+      return
+    }
 
     try {
       const response = await fetch('/api/ai-chat/conversations', {
@@ -297,6 +372,7 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
                   ? item.title
                   : userContent.trim().slice(0, 30) || '新对话',
               updatedAt,
+              scenarioId: item.scenarioId ?? selectedScenarioId,
             }
           : item
       )
@@ -308,6 +384,7 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
           id: conversationId,
           title: userContent.trim().slice(0, 30) || '新对话',
           updatedAt,
+          scenarioId: selectedScenarioId,
         },
         ...next,
       ]
@@ -331,7 +408,13 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
       created_at: new Date().toISOString(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    setMessages((prev) => {
+      const next: ChatMessage[] = [...prev, userMessage]
+      if (!userId && selectedConversationId) {
+        saveStoredMessages(selectedScenario.id, selectedConversationId, next)
+      }
+      return next
+    })
     setInput('')
     setIsLoading(true)
     setError(null)
@@ -344,7 +427,7 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
         body: JSON.stringify({
           scenarioId: selectedScenario.id,
           conversationId,
-          userId,
+          userId: userId ?? undefined,
           messages: [...messages, userMessage].map((item) => ({
             role: item.role,
             content: item.content,
@@ -362,17 +445,23 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
         throw new Error(data.message ?? '发送失败')
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) => {
+        const assistantMessage: ChatMessage = {
           id: `${Date.now()}-assistant`,
           role: 'assistant',
           content: data.reply ?? '',
           created_at: new Date().toISOString(),
-        },
-      ])
+        }
+        const next: ChatMessage[] = [...prev, assistantMessage]
+        if (!userId && selectedConversationId) {
+          saveStoredMessages(selectedScenario.id, selectedConversationId, next)
+        }
+        return next
+      })
       setTraceWarning(data.traceWarning ?? null)
-      router.refresh()
+      if (userId) {
+        router.refresh()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '发送失败')
     } finally {
@@ -456,10 +545,10 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
             </button>
           </div>
           <div className="mt-3 space-y-2">
-            {conversations.length === 0 ? (
+            {visibleConversations.length === 0 ? (
               <p className="text-xs text-zinc-400">暂无对话</p>
             ) : (
-              conversations.map((conversation) => (
+              visibleConversations.map((conversation) => (
                 <button
                   key={conversation.id}
                   type="button"
@@ -491,6 +580,14 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {!userId ? (
+                <Link
+                  href="/login?next=/ai-chat"
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:border-emerald-800 dark:hover:bg-emerald-900"
+                >
+                  登录保存记录
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={handleNewConversation}
@@ -509,6 +606,11 @@ export default function ChatClient({ scenarios, userId, initialScenarioId }: Cha
               ) : null}
             </div>
           </div>
+          {!userId ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              登录后可跨设备同步对话记录、长期保存历史、继续上次会话。
+            </p>
+          ) : null}
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             当前对话：
             {selectedConversationId

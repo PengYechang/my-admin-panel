@@ -1,5 +1,9 @@
 import Link from 'next/link'
-import { requireModuleAccess } from '@/utils/auth/modulePermissions'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/utils/supabase/server'
+import { createAdminClient } from '@/utils/supabase/admin'
+import { getUserRole } from '@/utils/auth/roles'
+import { resolveModulePermissions } from '@/utils/auth/modulePermissions'
 import ChatClient from '@/features/ai-chat/ChatClient'
 
 type AiChatPageProps = {
@@ -8,12 +12,43 @@ type AiChatPageProps = {
 
 export default async function AiChatPage({ searchParams }: AiChatPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined
-  const { supabase, user } = await requireModuleAccess('ai-chat', '/login?next=/ai-chat')
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  const { data: scenarios, error } = await supabase
-    .from('ai_chat_scenarios')
-    .select('id,name,description,prompt_key,config')
-    .order('created_at', { ascending: true })
+  if (user) {
+    const role = getUserRole(user)
+    const permissions = await resolveModulePermissions(supabase, user.id, role, 'ai-chat')
+    if (!permissions.canRead) {
+      redirect('/unauthorized')
+    }
+  }
+  let scenarios: Array<{
+    id: string
+    name: string
+    description: string | null
+    prompt_key: string
+    config: Record<string, unknown> | null
+  }> | null = null
+  let error: Error | null = null
+
+  try {
+    const scenarioClient = user ? supabase : createAdminClient()
+    const response = await scenarioClient
+      .from('ai_chat_scenarios')
+      .select('id,name,description,prompt_key,config')
+      .order('created_at', { ascending: true })
+
+    if (response.error) {
+      error = new Error(response.error.message)
+    } else {
+      scenarios = response.data ?? []
+    }
+  } catch (err) {
+    error = err instanceof Error ? err : new Error('场景加载失败')
+    scenarios = []
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
@@ -38,7 +73,7 @@ export default async function AiChatPage({ searchParams }: AiChatPageProps) {
         ) : scenarios && scenarios.length > 0 ? (
           <ChatClient
             scenarios={scenarios}
-            userId={user.id}
+            userId={user?.id}
             initialScenarioId={resolvedSearchParams?.scenario}
           />
         ) : (
